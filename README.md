@@ -1,7 +1,7 @@
 ## Snakemake rules
 
-Aim: optimize creation of new pipelines and avoid copy paste
-How: exploiting the potential of python
+- Aim: optimize creation of new pipelines and avoid copy paste
+- How: exploiting the potential of python
 
 ### Rules builder
 - example_rule: use a function to create a rule, problem lack of visibility in the main.py
