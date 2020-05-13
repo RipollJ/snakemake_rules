@@ -2,45 +2,46 @@
 # Created: 2020-05-12
 # License: MIT
 
+
 # Import for snakemake
-from snakemake.utils import update_config
+from utils import snakemake_vars, merge_dict, merge_strings
 from snakemake.shell import shell
+
 
 # define default params
 DEFAULT_PARAMS = {"one": "one", "two": "two"}
-DEFAULT_OPTIONS = {'one': "one", "two": "two"}
 
-# merge configuration to choose default params or customized params
-def merge_config(default: dict, overwrite: dict):
-    config = {}
-    update_config(config, default)
-    update_config(config, overwrite)
-    return config
+snakemake_vars(globals(), snakemake)
+
+params = merge_dict(DEFAULT_PARAMS, params)
+
 
 # creation of rule
-def run_example(input, output, params, options, **kwargs):
-    """
-        Hello World, this is a docstring
-    """
-    params = merge_config(DEFAULT_PARAMS, params)
-    options = merge_config(DEFAULT_OPTIONS, options)
+echo_message = merge_strings(f"input: {input}",
+                             f"input.one: {input.one}",
+                             f"input.two: {input.two}",
+                             f"outputs: {output}",
+                             f"output: {output.one}",
+                             f"output: {output.two}",
+                             f"params one: {params['one']}",
+                             f"params two: {params['two']}", join_string="\n")
+# echo_message :
+# input: inputs/first_input inputs/second_input inputs/hello_input inputs/world_input
+# input.one: inputs/hello_input
+# input.two: inputs/world_input
+# outputs: outputs/first_output outputs/second_output outputs/hello_output outputs/world_output outputs/done.txt
+# output: outputs/hello_output
+# output: outputs/world_output
+# params one: one
+# params two: qsdmflkjqsdml
 
-    shell(f"""echo \"options: one={options['one']}, two={options['two']}
-input: {input}
-input.one: {input.one}
-input.two: {input.two}
-outputs: {output}
-output: {output.one}
-output: {output.two}
-params one: {params['one']}
-params two: {params['two']}
-\"
+shell(f"""
+echo "{echo_message}"
 touch {output.done}
 touch {output}
 touch {output.one}
-touch {output.two}""")
-
-# run_example(input)
+touch {output.two}
+""")
 
 ####
 # END 
