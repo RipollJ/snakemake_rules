@@ -20,6 +20,9 @@ snakemake \
     -n # dry_run
 ```
 
+### Warnings snakemake v5.15
+Conda environments are only allowed with shell, script, notebook, or wrapper directives (not with run).
+
 ### Thanks to [Stardisblue](https://github.com/stardisblue) for these ideas and examples
 
 ## END
