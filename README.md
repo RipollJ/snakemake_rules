@@ -20,6 +20,6 @@ snakemake \
     -n # dry_run
 ```
 
-### Thanks to Stardisblue for these ideas and examples
+### Thanks to [Stardisblue](https://github.com/stardisblue) for these ideas and examples
 
 ## END
