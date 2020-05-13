@@ -1,5 +1,8 @@
+# For test
+# Comment rules that do not use 
 
 from lib.example_run_fn import run_example
+from pprint import pprint
 
 INPUT = "inputs/"
 OUTPUT = "outputs/"
@@ -17,7 +20,7 @@ include: 'lib/example_script.py'
                 {"two": "three"},
                 {"one": "i am option"})
 
-# rule shell
+# rule run
  rule example_rule:
      message: """---Indexing reference genome---"""
      input:
@@ -35,7 +38,7 @@ include: 'lib/example_script.py'
          shell(run_example2(input, output, params, wildcards, log, threads,
                             resources, config, options={"one": "i am option"}))
 
-# rule run
+# rule run_fn
 rule example_rule:
     message: """---Rule message---"""
     input:
@@ -54,7 +57,7 @@ rule example_rule:
 
 # rule script
 rule example_rule:
-    message: """---Rule message---"""
+    message: """---Indexing reference genome---"""
     input:
         INPUT+"first_input", INPUT+"second_input",
         one = INPUT+"hello_input",
@@ -67,11 +70,11 @@ rule example_rule:
     params:
         two = 'qsdmflkjqsdml'
     script:
-        run_example(**locals())
+        "lib/test_script.py"
         
 #######################################################################
 rule all:
-    # Aim: Detection of differentially expressed isoforms
+    # Aim: The last output file of pipeline
     input:
         rules.example_rule.output
         
