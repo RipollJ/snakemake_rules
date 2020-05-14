@@ -1,20 +1,14 @@
 # Author: JR & FC
-# Created: 2020-05-12
+# Created: 2020-05-14
 # License: MIT
+
 
 # Import for snakemake
 from snakemake.utils import update_config
-from snakemake.shell import shell
+from lib.utils import merge_dict, merge_strings
 
 # define default params
 DEFAULT_PARAMS = {"one": "one", "two": "two"}
-
-# merge configuration to choose default params or customized params
-def merge_dict(default: dict, overwrite: dict):
-    config = {}
-    update_config(config, default)
-    update_config(config, overwrite)
-    return config
 
 # creation of rule
 def run_example(input, output, params, **kwargs):
@@ -23,21 +17,20 @@ def run_example(input, output, params, **kwargs):
     """
     params = merge_dict(DEFAULT_PARAMS, params)
 
-    shell(f"""
-    echo \"input: {input}
-    input.one: {input.one}
-    input.two: {input.two}
-    outputs: {output}
-    output: {output.one}
-    output: {output.two}
-    params one: {params['one']}
-    params two: {params['two']}
-    \"
-    touch {output.done}
-    touch {output}
-    touch {output.one}
-    touch {output.two}""")
-    
+    return merge_strings(f"echo \"input: {input}",
+                         f"input.one: {input.one}",
+                         f"input.two: {input.two}" if input.two != "{input.two}" else "outputs/testing",
+                         f"outputs: {output}",
+                         f"output: {output.one}",
+                         f"output: {output.two}",
+                         f"params: {params}",
+                         f"params one: {params.one}",
+                         f"params two: {params.two}\"",
+                         f"touch {output.done}",
+                         f"touch {output}",
+                         f"touch {output.one}",
+                         f"touch {output.two}", join_string="\n")
+                         
 ####
 # END 
 
