@@ -1,0 +1,412 @@
+from snakemake.utils import update_config
+from snakemake.io import Params
+from typing import Union, Callable, Optional
+
+
+class MapError(Exception):
+    def __init__(self, variable, message):
+        self.variable = variable
+        self.message = message
+
+
+class StubParam(str):
+    """ Represents a ghost parameter, will return False and is equal to None is represented as a snakemake object eg: {params.example}
+    """
+    __stubbed = True
+
+    def __eq__(self, other):
+        return None == other
+
+    def __nonzero__(self):
+        return False
+
+    def __bool__(self):
+        return False
+
+
+class _StubParams(Params):
+    """ Represents an empty Params object, will return False or will delegate resolution to snakemake
+    """
+    __stubbed = True
+
+    def __init__(self, prefix):
+        self.__prefix = prefix
+
+    def __stub_param(self, key):
+        return StubParam("{"+self.__prefix+"."+key+"}")
+
+    def __getitem__(self, key):
+        return self.__stub_param(key)
+
+    def __getattr__(self, key):
+        return self.__stub_param(key)
+
+    def __str__(self):
+        return "{"+self.__prefix+"}"
+
+    def get(self, key, default=""):
+        return default
+
+
+STUB_SNAKEMAKE_VARS = {
+    "input": _StubParams("input"),
+    "log": _StubParams("log"),
+    "output": _StubParams("output"),
+    "params": _StubParams("params"),
+    "resources": _StubParams("resources"),
+    "rule": _StubParams("rule"),
+    "threads": _StubParams("threads"),
+    "wildcards": _StubParams("wildcards")
+}
+
+
+def inject(fn, snakemake_vars):
+    """ Injects snakemake variables into the function.
+
+    If snakemake vars cannot be resolved, injects a ghost object which impersonate snakemake variables, always returning false
+    """
+    if 'rule' in snakemake_vars:
+        shell_command = fn(**snakemake_vars)
+        print(shell_command)
+        return shell_command
+    else:
+        return "WARNING : snakemake values are not currently available, can result in inconsistencies in the displayed shell command.\n"+fn(**STUB_SNAKEMAKE_VARS)
+
+
+def merge_dict(default, overwrite):
+    """Merges default and overwrite into an new object.
+
+    .. deprecated::
+        `merge_dict` has too many limitations and will be removed in the next iterations
+    """
+    if isinstance(overwrite, _StubParams):
+        return Params(fromdict=default)
+
+    config = {}
+    update_config(config, default)
+    update_config(config, overwrite)
+    return Params(fromdict=config)
+
+
+def merge_strings(*args, join_string=" \\\n"):
+    """
+    .. deprecated::
+        `merge_strings` is now deprecated and will be removed in the next iterations, use
+        `join_str` instead
+    """
+    return join_str(*args, joiner=join_string)
+
+
+def join_str(*args, joiner=" \\\n"):
+    """ Joins argument strings using joiner attribute.
+
+    Will ignore Falsy strings
+
+    Parameters
+    ----------
+        *args: str[]
+            strings to join together
+        joiner: str
+            string used to join `*args`, default allows newline for cmds (default: '\\\\n ')
+
+    Returns
+    -------
+    the joined string
+
+    Example
+    -------
+
+        >>> join_str('a', 'b', 'c')
+        'a \\\\\\nb \\\\\\nc'
+
+        >>> join_str('a', 'b', 'c', joiner=', ')
+        'a, b, c'
+    """
+    return joiner.join(filter(None, args))
+
+
+def val_mappy(value: str, matcher: Union[str, dict, tuple, list, Callable[..., Union[str, None, bool]], None] = None, default: Optional[str] = None):
+    if isinstance(matcher, str):
+        if matcher == value:
+            return value
+        else:
+            if default == None:
+                error_msg = f"{value!r} does not match given value and no default value have been defined"
+                raise ValueError(error_msg, value, matcher)
+            return default
+
+    elif isinstance(matcher, dict):
+        try:
+            return matcher[value]
+        except KeyError:
+            pass
+
+        if default == None:
+            error_msg = f"{value!r} does not match given values and no default value have been defined"
+            raise ValueError(error_msg, value, matcher)
+            # return matcher[value]
+        return default
+
+    elif isinstance(matcher, (tuple, list)):
+        if value in matcher:
+            return value
+        else:
+            if default == None:
+                error_msg = f"{value!r} does not match given values and no default value have been defined"
+                raise ValueError(error_msg, value, matcher)
+
+            return default
+
+    elif callable(matcher):
+        result = matcher(value, default)
+        if result:
+            if result == True:
+                return value
+
+            return result
+
+        if default != None:
+            return default
+
+        error_msg = f"passing {value!r} through {matcher!r} returned a Falsy value and no default value have been defined"
+        raise ValueError(error_msg, value, matcher)
+
+    return value
+
+
+def mappy(holder, variable: str, matcher: Union[str, dict, tuple, list, Callable[..., Union[str, None, bool]], None] = None, default=None):
+    """ Will try to retrieve the `variable` attribute of `holder` using `holder.get(variable, default)` and match it with the matcher.
+
+    If no `default` value is provided and mappy cannot find/match the variable. it will raise an error.
+
+    Parameters
+    ----------
+        holder : snakemake input, output, params ...
+            the object containing the variable
+
+        variable: str
+            name of the variable, the value (`needle`) of `holder.get(variable)` will be retrieved .
+            if holder does not contain `variable`, will use `default` as the needle.
+
+        matcher: str, dict, tuple, list, callable 
+            holds the values to compare to.
+            Depending on the type of the matcher, it will behave differently:
+
+            str: will check if `needle == matcher`, if so returns needle
+                returns `default` or raises ValueError otherwise
+
+            dict: if needle is present as a key, will return the corresponding value
+                returns `default` or raises ValueError otherwise
+
+            tuple, list: checks if `needle` is present in the tuple/list
+                returns `default` or raises ValueError otherwise
+
+            callable:  (needle: str, default: str) -> bool, str, None
+                in the case that holder does not contain variable, needle and default will hold the same value.
+                if the result of the function is True, mappy returns the needle
+                if it's Truthy, mappy will return the result of the function
+                returns `default` or raises ValueError otherwise
+        default: str, None
+            defined, it will be returned in case that holder does not contain variable, or if it cannot resolve using matcher.
+            if None, mappy will raise ValueError if needle is None
+
+    Returns
+    -------
+        the resolved value using matcher, 
+        if default is defined and mappy could not resolve the value, will return default
+        raises ValueError if unable to resolve and default is None
+
+    Examples
+    --------
+
+        >>> params = Params(fromdict={"param1": "value 1", "param2": "value2"})
+
+    You can use it to require the existance of a parameter :
+
+        >>> mappy(params, "param1")
+        'value 1'
+
+        >>> mappy(params, "param5")
+        Traceback (most recent call last):
+        ...
+        ValueError: the value for 'param5' is None, you can avoid this error by defining a default value
+
+    Exact match:
+
+        >>> mappy(params, "param1", "value 1")
+        'value 1'
+
+        >>> mappy(params, "param1", "does not exist")
+        Traceback (most recent call last):
+        ...
+        ValueError: ("'value 1' does not match given value and no default value have been defined", 'value 1', 'does not exist')
+
+    Using a tuple of allowed values
+
+        >>> mappy(params, "param1", ("value 1", "other allowed value"))
+        'value 1'
+
+        >>> mappy(params, "param1", ("value11", "other allowed value"))
+        Traceback (most recent call last):
+        ...
+        ValueError: ("'value 1' does not match given values and no default value have been defined", 'value 1', ('value11', 'other allowed value'))
+
+    Using a list of allowed values
+
+        >>> mappy(params, "param1", ["value 1", "other value"])
+        'value 1'
+
+        >>> mappy(params, "param1", ["value11", "other value"])
+        Traceback (most recent call last):
+        ...
+        ValueError: ("'value 1' does not match given values and no default value have been defined", 'value 1', ['value11', 'other value'])
+
+    Using a dictionary for existing values and mapping
+
+        >>> mappy(params, 'param1', {'value 1': 'another object', 'other accepted': 'Hello World'})
+        'another object'
+
+        >>> mappy(params, 'param1', {'value11': 'will raise an error'})
+        Traceback (most recent call last):
+        ...
+        ValueError: ("'value 1' does not match given values and no default value have been defined", 'value 1', {'value11': 'will raise an error'})
+
+    Using a function
+
+        >>> mappy(params, 'param1', lambda needle, default : needle+" augmented")
+        'value 1 augmented'
+
+        >>> def validation(needle, default):
+        ...     return needle.startswith('value')
+        >>> mappy(params, 'param1', validation)
+        'value 1'
+    """
+    try:
+        holder.__StubParams__stubbed
+    except AttributeError:
+        pass
+    else:
+        mapper_str = f"{{{matcher!r}}}" if isinstance(
+            matcher, dict) else f'{matcher!r}'
+        default_str = "" if default == None else f', default={default!r}'
+        return f"<mappy({holder[variable]}, {mapper_str}{default_str})>"
+
+    value = holder.get(variable, default)
+
+    if value == None:  # means that value and default are none
+        error_msg = f"the value for {variable!r} is None, you can avoid this error by defining a default value"
+        raise ValueError(error_msg)
+
+    return val_mappy(value, matcher, default=default)
+
+
+def optional(holder, variable, string, default_value=None):
+    """
+    Checks if holder has variable, will return a formatted `string` with the corresponding value injected
+
+    Parameters
+    ----------
+        holder : snakemake input, output, params ...
+            the object containing the variable
+        string : str
+            the value to format and return
+        variable : str
+            the name of the variable
+        default_value : str, optional
+            default value when variable is not set (default : None)
+
+    Returns
+    -------
+    the formatted string, 
+    if it is called with stubbed parameters, will format the string with `<variable>`
+
+    Examples
+    --------
+        >>> input = Params(fromdict={"annot": "example.gff"})
+        >>> optional(input, "annot", "--annotation {}")
+        '--annotation example.gff'
+
+        >>> optional(input, "unexistant", "--unexistant {}")
+        ''
+
+        During snakemake printshellcmds:
+
+        >>> stub_input = _StubParams("input")
+
+        >>> optional(stub_input, "annot", "--annotation {}")
+        '[--annotation <{input.annot} $default=None>]'
+    """
+    try:
+        holder._StubParams__stubbed
+    except AttributeError:
+        pass
+    else:
+        return "[{}]".format(string.format(f"<{holder[variable]} $default={default_value!r}>"))
+
+    value = holder.get(variable, default_value)
+    return string.format(value) if value else ""
+
+
+def extensions(path, extension):
+    """
+    type: (path: str, extension: str | list | tuple) -> bool
+
+    Checks if `path` matches the extension
+
+    Parameters
+    ---------- 
+        path : str
+            the path to the file
+
+        extension : str, list, type
+            possible accepted extension
+
+
+    Returns
+    -------
+    `True` if `path` has `extension`, `False` otherwise
+
+    Examples
+    --------
+        >>> extensions("file.pdf", ".pdf")
+        True
+
+        >>> extensions("file.jpg", (".jpg", ".jpeg"))
+        True
+
+        >>> extensions("file.pdf", [".png", ".jpeg",".jpg", ".gif"])
+        False
+
+    Notes
+    -----
+        Python > 3.5 : 
+            extensions(path: str, extension: str | list | tuple) -> bool
+    """
+    if isinstance(extension, (str, tuple)):
+        if path.endswith(extension):
+            return True
+        # , f"{path} does not end with {extension}"
+        # , f"{path} does not end with any of {', '.join(extension)}"
+        return False
+    elif isinstance(extension, list):
+        if path.endswith(tuple(extension)):
+            return True
+
+        # , f"{path} does not end with any of {', '.join(extension)}"
+        return False
+
+    # , f"{extension} couldn't be resolved in either string, list or tuple"
+    return False
+
+
+def is_fasta(input_fasta):
+    return extensions(input_fasta, ('.fa', '.fna', '.fas', '.fasta', '.fa.gz', '.fna.gz', '.fas.gz', '.fasta.gz'))
+
+
+def is_gff3(annotation_path):
+    return extensions(annotation_path, ('.gff', '.gff3.gz', '.gff3'))
+
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()
