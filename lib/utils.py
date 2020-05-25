@@ -394,10 +394,12 @@ def mappy(holder, variable: str, matcher: Union[str, dict, tuple, list, Callable
     except AttributeError:
         pass
     else:
-        mapper_str = f"{{{matcher!r}}}" if isinstance(
+        matcher_protect = f"{matcher!r}".replace("{","{{").replace("}", "}}")
+        print(matcher_protect)
+        mapper_str = f"{matcher_protect}" if isinstance(
             matcher, dict) else f'{matcher!r}'
         default_str = "" if default == None else f', default={default!r}'
-        return f"<mappy({holder[variable]}, {mapper_str}, {default_str})>"
+        return f"<mappy({holder[variable]!r}, {mapper_str}{default_str})>"
 
     value = holder.get(variable, default)
 
@@ -449,7 +451,7 @@ def optional(holder, variable, string, default_value=None):
     except AttributeError:
         pass
     else:
-        return "[{}]".format(string.format(f"<{holder[variable]} $default={default_value!r}>"))
+        return "[{}]".format(string.format(f"<{{{holder[variable]}}}, default={default_value!r}>"))
 
     value = holder.get(variable, default_value)
     return string.format(value) if value else ""
