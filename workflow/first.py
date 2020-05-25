@@ -1,5 +1,6 @@
 from lib.example_run_fn import run_example
 from lib.utils import inject
+# ln -s -r lib/ workflow/
 
 INPUT = "inputs/"
 OUTPUT = "outputs/"

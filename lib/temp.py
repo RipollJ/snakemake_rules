@@ -19,7 +19,7 @@ pprint(option)
 pprint(option1)
 
 
-mappy(params, "test2", "test parameter")
+mappy(params, "test2")
 
 mappy(params, "test", ("test parameter", "test parameter2"))
 mappy(params, "test", ["test parameter", "test parameter2"])
