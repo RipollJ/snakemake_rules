@@ -3,13 +3,7 @@ from snakemake.io import Params
 from typing import Union, Callable, Optional
 
 
-class MapError(Exception):
-    def __init__(self, variable, message):
-        self.variable = variable
-        self.message = message
-
-
-class StubParam(str):
+class _StubParam(str):
     """ Represents a ghost parameter, will return False and is equal to None is represented as a snakemake object eg: {params.example}
     """
     __stubbed = True
@@ -33,7 +27,7 @@ class _StubParams(Params):
         self.__prefix = prefix
 
     def __stub_param(self, key):
-        return StubParam("{"+self.__prefix+"."+key+"}")
+        return _StubParam("{"+self.__prefix+"."+key+"}")
 
     def __getitem__(self, key):
         return self.__stub_param(key)
@@ -126,6 +120,118 @@ def join_str(*args, joiner=" \\\n"):
 
 
 def val_mappy(value: str, matcher: Union[str, dict, tuple, list, Callable[..., Union[str, None, bool]], None] = None, default: Optional[str] = None):
+    """Will try to match value with the matcher.
+
+    If `default` is not provided and val_mappy cannot match the variable. it will raise an error.
+
+    Note
+    ----
+    During DAG building phase, using val_mappy results 
+
+    Parameters
+    ----------
+        value: str
+            the value to resolve using the matcher
+
+        matcher: str, dict, tuple, list, callable 
+            holds the values to compare to.
+            Depending on the type of the matcher, it will behave differently:
+
+            str: will check if `value == matcher`, if so returns `value`
+                returns `default` or raises ValueError otherwise
+
+            dict: if `value` is present as a key, will return the corresponding `value`
+                returns `default` or raises ValueError otherwise
+
+            tuple, list: checks if `value` is present in the tuple/list
+                returns `default` or raises ValueError otherwise
+
+            callable:  (`value`: str, `default`: str) -> bool, str, None
+                if the result is not None, val_mappy returns the result
+                returns `default` or raises ValueError otherwise
+
+        default: str, None
+            defined, it will be returned if value cannot resolve using matcher.
+            if None, mappy will raise ValueError if value is None
+
+    Examples
+    --------
+
+        >>> params = Params(fromdict={"param1": "value 1", "param2": "value2"})
+
+    You can use it to require the existance of a parameter
+
+        >>> val_mappy(params.param1)
+        'value 1'
+
+        >>> val_mappy(params.get('param5')) is None
+        True
+
+    Exact match
+
+        >>> val_mappy(params.param1, "value 1")
+        'value 1'
+
+        >>> val_mappy(params.param1, "does not exist")
+        Traceback (most recent call last):
+        ...
+        ValueError: ("'value 1' does not match given value and no default value have been defined", 'value 1', 'does not exist')
+
+    Using a tuple of allowed values
+
+        >>> val_mappy(params.param1, ("value 1", "other allowed value"))
+        'value 1'
+
+        >>> val_mappy(params.param1, ("value11", "other allowed value"))
+        Traceback (most recent call last):
+        ...
+        ValueError: ("'value 1' does not match given values and no default value have been defined", 'value 1', ('value11', 'other allowed value'))
+
+    Using a list of allowed values
+
+        >>> val_mappy(params.param1, ["value 1", "other value"])
+        'value 1'
+
+        >>> val_mappy(params.param1, ["value11", "other value"])
+        Traceback (most recent call last):
+        ...
+        ValueError: ("'value 1' does not match given values and no default value have been defined", 'value 1', ['value11', 'other value'])
+
+    Using a dictionary for existing values and mapping
+
+        >>> val_mappy(params.param1, {'value 1': 'another object', 'other accepted': 'Hello World'})
+        'another object'
+
+        >>> val_mappy(params.param1, {'value11': 'will raise an error'})
+        Traceback (most recent call last):
+        ...
+        ValueError: ("'value 1' does not match given values and no default value have been defined", 'value 1', {'value11': 'will raise an error'})
+
+    Using a function
+
+        >>> val_mappy(params.param1, lambda needle, default : needle+" augmented")
+        'value 1 augmented'
+
+        >>> def validation(needle, default):
+        ...     return needle if needle.startswith('value') else None
+        >>> val_mappy(params.param1, validation)
+        'value 1'
+
+    See Also
+    --------
+
+    mappy: solving snakemake arguments
+    """
+    try:
+        value.__StubParam__stubbed
+    except AttributeError:
+        pass
+    else:
+        mapper_str = f"{{{matcher!r}}}" if isinstance(
+            matcher, dict) else f'{matcher!r}'
+        default_str = "" if default == None else f', default={default!r}'
+        return f"<val_mappy({value}, {mapper_str}, {default_str})>"
+
     if isinstance(matcher, str):
         if matcher == value:
             return value
@@ -159,16 +265,13 @@ def val_mappy(value: str, matcher: Union[str, dict, tuple, list, Callable[..., U
 
     elif callable(matcher):
         result = matcher(value, default)
-        if result:
-            if result == True:
-                return value
-
+        if result != None:
             return result
 
         if default != None:
             return default
 
-        error_msg = f"passing {value!r} through {matcher!r} returned a Falsy value and no default value have been defined"
+        error_msg = f"passing {value!r} through {matcher!r} returned None and no default value have been defined"
         raise ValueError(error_msg, value, matcher)
 
     return value
@@ -177,7 +280,7 @@ def val_mappy(value: str, matcher: Union[str, dict, tuple, list, Callable[..., U
 def mappy(holder, variable: str, matcher: Union[str, dict, tuple, list, Callable[..., Union[str, None, bool]], None] = None, default=None):
     """ Will try to retrieve the `variable` attribute of `holder` using `holder.get(variable, default)` and match it with the matcher.
 
-    If no `default` value is provided and mappy cannot find/match the variable. it will raise an error.
+    If default` value is not provided and mappy cannot find/match the variable. it will raise an error.
 
     Parameters
     ----------
@@ -203,8 +306,7 @@ def mappy(holder, variable: str, matcher: Union[str, dict, tuple, list, Callable
 
             callable:  (needle: str, default: str) -> bool, str, None
                 in the case that holder does not contain variable, needle and default will hold the same value.
-                if the result of the function is True, mappy returns the needle
-                if it's Truthy, mappy will return the result of the function
+                if the result of the function is not None, mappy will return the result
                 returns `default` or raises ValueError otherwise
         default: str, None
             defined, it will be returned in case that holder does not contain variable, or if it cannot resolve using matcher.
@@ -212,6 +314,7 @@ def mappy(holder, variable: str, matcher: Union[str, dict, tuple, list, Callable
 
     Returns
     -------
+    Any
         the resolved value using matcher, 
         if default is defined and mappy could not resolve the value, will return default
         raises ValueError if unable to resolve and default is None
@@ -221,7 +324,7 @@ def mappy(holder, variable: str, matcher: Union[str, dict, tuple, list, Callable
 
         >>> params = Params(fromdict={"param1": "value 1", "param2": "value2"})
 
-    You can use it to require the existance of a parameter :
+    You can use it to require the existance of a parameter
 
         >>> mappy(params, "param1")
         'value 1'
@@ -231,7 +334,7 @@ def mappy(holder, variable: str, matcher: Union[str, dict, tuple, list, Callable
         ...
         ValueError: the value for 'param5' is None, you can avoid this error by defining a default value
 
-    Exact match:
+    Exact match
 
         >>> mappy(params, "param1", "value 1")
         'value 1'
@@ -277,9 +380,14 @@ def mappy(holder, variable: str, matcher: Union[str, dict, tuple, list, Callable
         'value 1 augmented'
 
         >>> def validation(needle, default):
-        ...     return needle.startswith('value')
+        ...     return needle if needle.startswith('value') else None
         >>> mappy(params, 'param1', validation)
         'value 1'
+
+    See Also
+    --------
+
+    val_mappy: directly solving value against the matcher
     """
     try:
         holder.__StubParams__stubbed
@@ -289,7 +397,7 @@ def mappy(holder, variable: str, matcher: Union[str, dict, tuple, list, Callable
         mapper_str = f"{{{matcher!r}}}" if isinstance(
             matcher, dict) else f'{matcher!r}'
         default_str = "" if default == None else f', default={default!r}'
-        return f"<mappy({holder[variable]}, {mapper_str}{default_str})>"
+        return f"<mappy({holder[variable]}, {mapper_str}, {default_str})>"
 
     value = holder.get(variable, default)
 
